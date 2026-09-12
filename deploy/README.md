@@ -82,7 +82,7 @@ Caddy 自动申请证书，并保留原始 Host 和 Origin 供应用同源校验
 
 备份包含 `data/` 全部文件（SQLite、WAL/SHM 若存在、`encryption.key`）、部署配置和镜像元数据，权限为 600。备份期间停止应用以保证一致性，并恢复原本运行中的服务；原来已停止则保持停止。备份和恢复前的数据不会自动删除，确认不再需要后可自行清理。HTTPS 证书卷不在应用备份中，迁移后 Caddy 可重新申请。
 
-迁移到新机器：安装部署文件和 Docker、登录 GHCR，配置新的 `.env`（可复制 `.env.example` 并修改 UID/GID），复制受信任的备份，然后执行 `./gateway.sh restore /path/to/backup.tar.gz`。**数据库和加密密钥必须一起恢复。** 对本地未发布 image ID 的备份，还需先 `docker save` / `docker load` 对应镜像。
+迁移到新机器：安装部署文件和 Docker，配置新的 `.env`（可复制 `.env.example` 并修改 UID/GID），复制受信任的备份，然后执行 `./gateway.sh restore /path/to/backup.tar.gz`。**数据库和加密密钥必须一起恢复。** 对本地未发布 image ID 的备份，还需先 `docker save` / `docker load` 对应镜像。
 
 离线更新：先 `docker load -i image.tar`，再 `./gateway.sh update image:tag --no-pull`。命令会先验证本地镜像存在，随后执行相同备份与失败恢复流程。
 
