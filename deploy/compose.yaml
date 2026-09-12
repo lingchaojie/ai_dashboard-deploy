@@ -1,0 +1,33 @@
+name: ${COMPOSE_PROJECT_NAME:-ai-gateway}
+services:
+  dashboard:
+    image: ${GATEWAY_IMAGE:-ghcr.io/lingchaojie/ai_dashboard:latest}
+    user: "${GATEWAY_UID:-10001}:${GATEWAY_GID:-10001}"
+    restart: unless-stopped
+    stop_grace_period: 120s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      DASHBOARD_ADDR: 0.0.0.0:8080
+      DASHBOARD_DATA_DIR: /data
+      DASHBOARD_STATIC_DIR: /app/public
+      TZ: ${TZ:-Asia/Shanghai}
+    healthcheck:
+      test: [CMD, /app/dashboard, healthcheck]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

@@ -1,0 +1,10 @@
+.env
+data/
+backups/
+data-before-restore-*/
+__pycache__/
+*.pyc
+.gateway.lock
+.previous-backup
+.deployment-revision
+/ai-gateway/
