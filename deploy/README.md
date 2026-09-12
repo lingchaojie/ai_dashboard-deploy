@@ -11,9 +11,9 @@ curl -fsSL https://raw.githubusercontent.com/lingchaojie/ai_dashboard-deploy/mai
   -o /tmp/ai-gateway-install.sh && bash /tmp/ai-gateway-install.sh
 ```
 
-脚本不需要 Git、GitHub CLI 或 GitHub token。默认安装在当前目录的 `ai-gateway/`，端口为 `127.0.0.1:8080`。应用镜像为 `ghcr.io/lingchaojie/ai_dashboard:latest`，需设置为 Public 后才可匿名拉取；若镜像仍提示 denied，查看镜像的 Package settings，而不是公开源码仓库。
+脚本不需要 Git、GitHub CLI 或 GitHub token。默认安装在当前目录的 `ai-gateway/`，端口为 `127.0.0.1:8080`。应用镜像 `ghcr.io/lingchaojie/ai_dashboard:latest` 已公开，支持匿名拉取。源码仓库保持私有。
 
-脚本把部署仓库的 main 解析为固定提交，再下载该提交的全部部署文件。重复执行保留已有 `.env`、Compose、Caddyfile 和数据；脚本不自动安装 Docker 或更改系统防火墙。不要仅用 `curl ... | bash` 忽略下载错误，以上命令会先完整下载，成功后再执行。
+脚本一次下载公开部署仓库的完整提交快照，从中提取明确列出的部署文件，并记录提交 SHA；不调用 GitHub API，因此不依赖匿名 API 配额。重复执行保留已有 `.env`、Compose、Caddyfile 和数据；脚本不自动安装 Docker 或更改系统防火墙。以上命令会先完整下载，成功后再执行。
 
 自定义目录和端口：
 

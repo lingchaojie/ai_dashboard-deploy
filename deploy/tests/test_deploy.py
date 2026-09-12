@@ -80,6 +80,34 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotEqual(result.returncode,0)
         self.assertEqual(list(self.directory.iterdir()),[])
 
+    def test_installer_uses_one_public_archive_without_github_api(self):
+        binaries = self.directory / 'bin'
+        binaries.mkdir()
+        archive = self.directory / 'snapshot.tar.gz'
+        revision = 'a' * 40
+        names = ('compose.yaml', 'compose.https.yaml', 'Caddyfile', '.env.example', 'gateway.sh', 'gateway.py', 'README.md')
+        with tarfile.open(archive, 'w:gz', format=tarfile.PAX_FORMAT, pax_headers={'comment': revision}) as tar:
+            for name in names:
+                content = b'# deployment fixture\n'
+                if name == 'gateway.sh':
+                    content = b'#!/usr/bin/env bash\nprintf installed > "$INSTALL_DIR/installed"\n'
+                item = tarfile.TarInfo('public-snapshot/deploy/' + name)
+                item.size = len(content)
+                tar.addfile(item, io.BytesIO(content))
+        curl = binaries / 'curl'
+        curl.write_text('#!/usr/bin/env bash\ncase "$*" in *api.github.com*) exit 42 ;; esac\noutput=\'\'\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = \'-o\' ]; then shift; output="$1"; fi\n  shift\ndone\ncp "$FIXTURE_ARCHIVE" "$output"\n')
+        curl.chmod(0o755)
+        docker = binaries / 'docker'
+        docker.write_text('#!/bin/sh\nexit 0\n')
+        docker.chmod(0o755)
+        target = self.directory / 'installed'
+        environment = dict(os.environ, PATH=str(binaries)+os.pathsep+os.environ['PATH'], FIXTURE_ARCHIVE=str(archive), INSTALL_DIR=str(target))
+        environment.pop('GITHUB_TOKEN', None)
+        result = subprocess.run(['bash', str(ROOT / 'install.sh')], env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((target / '.deployment-revision').read_text().strip(), revision)
+        self.assertEqual((target / 'installed').read_text(), 'installed')
+
     def test_installer_download_failure_keeps_existing_installation(self):
         self.assertTrue((ROOT / 'install.sh').exists(), 'installer must exist')
         binaries = self.directory / 'bin'

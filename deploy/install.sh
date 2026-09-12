@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Standalone installer. GITHUB_TOKEN is used only for downloading private files.
+# Public standalone installer. No GitHub API or registry credentials required.
 set -euo pipefail
 umask 077
 REPOSITORY="${GATEWAY_DEPLOY_REPOSITORY:-lingchaojie/ai_dashboard-deploy}"
@@ -11,23 +11,37 @@ done
 docker compose version >/dev/null
 [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo 'Invalid repository' >&2; exit 1; }
 [[ "$REF" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo 'Use main, a version tag, or a commit SHA as GATEWAY_REF' >&2; exit 1; }
-[[ "${GITHUB_TOKEN:-}" =~ ^[A-Za-z0-9_]*$ ]] || { echo 'Invalid token format' >&2; exit 1; }
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf -- "$TEMP_DIR"' EXIT
-fetch() {
-    local url="$1" output="$2" accept="$3"
-    # Read authorization from stdin, keeping the token out of process arguments.
-    { if [[ -n "${GITHUB_TOKEN:-}" ]]; then printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN"; fi; } |
-        curl --config - --fail --silent --show-error --location --retry 3 --connect-timeout 15 --max-time 120 \
-            --proto '=https' --proto-redir '=https' -H "Accept: $accept" "$url" -o "$output"
-}
-fetch "https://api.github.com/repos/$REPOSITORY/commits/$REF" "$TEMP_DIR/commit.json" 'application/vnd.github+json'
-SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"])' "$TEMP_DIR/commit.json")"
-[[ "$SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'Invalid commit response' >&2; exit 1; }
+# One archive gives a consistent commit without GitHub's anonymous API quota.
+curl --fail --silent --show-error --location --retry 3 --connect-timeout 15 --max-time 120 \
+    --max-filesize 5242880 --proto '=https' --proto-redir '=https' \
+    "https://codeload.github.com/$REPOSITORY/tar.gz/$REF" -o "$TEMP_DIR/deployment.tar.gz"
 FILES=(compose.yaml compose.https.yaml Caddyfile .env.example gateway.sh gateway.py README.md)
-for file in "${FILES[@]}"; do
-    fetch "https://api.github.com/repos/$REPOSITORY/contents/deploy/$file?ref=$SHA" "$TEMP_DIR/$file" 'application/vnd.github.raw+json'
-done
+SHA="$(python3 - "$TEMP_DIR/deployment.tar.gz" "$TEMP_DIR" "${FILES[@]}" <<'PYARCHIVE'
+from pathlib import Path
+import re, sys, tarfile
+archive_path, destination, *names = sys.argv[1:]
+with tarfile.open(archive_path, 'r:gz') as archive:
+    revision = archive.pax_headers.get('comment', '')
+    if not re.fullmatch(r'[a-f0-9]{40}', revision):
+        raise ValueError('Archive does not identify its Git commit')
+    roots = {member.name.split('/')[0] for member in archive.getmembers()}
+    if len(roots) != 1 or next(iter(roots)) in ('', '.', '..'):
+        raise ValueError('Unexpected deployment archive root')
+    root = next(iter(roots))
+    selected = []
+    for name in names:
+        member = archive.getmember(root + '/deploy/' + name)
+        if not member.isfile() or member.size > 2 * 1024 * 1024:
+            raise ValueError('Invalid deployment file: ' + name)
+        selected.append((name, member))
+    for name, member in selected:
+        with archive.extractfile(member) as source:
+            (Path(destination) / name).write_bytes(source.read())
+    print(revision)
+PYARCHIVE
+)"
 bash -n "$TEMP_DIR/gateway.sh"
 python3 - "$TEMP_DIR/gateway.py" <<'PY'
 import ast, pathlib, sys
