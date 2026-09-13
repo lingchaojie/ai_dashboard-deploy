@@ -8,3 +8,6 @@ __pycache__/
 .previous-backup
 .deployment-revision
 /ai-gateway/
+.updates/
+update-run/
+.updater.lock

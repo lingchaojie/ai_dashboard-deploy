@@ -17,5 +17,5 @@ jobs:
           bash -n deploy/install.sh deploy/gateway.sh
           shellcheck deploy/install.sh deploy/gateway.sh
           python3 -m unittest discover -s deploy/tests -v
-          docker compose -f deploy/compose.yaml config --quiet
-          DOMAIN=dashboard.example.com docker compose -f deploy/compose.yaml -f deploy/compose.https.yaml config --quiet
+          docker compose -f deploy/compose.yaml -f deploy/compose.updates.yaml config --quiet
+          DOMAIN=dashboard.example.com docker compose -f deploy/compose.yaml -f deploy/compose.updates.yaml -f deploy/compose.https.yaml config --quiet

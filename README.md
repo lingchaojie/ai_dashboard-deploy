@@ -20,6 +20,8 @@ cd ai-gateway
 ./gateway.sh rollback
 ```
 
+管理员可在侧边栏“系统更新”检查版本、一键升级并回滚到升级前备份。旧安装重新执行安装器后，再用命令行升级一次看板即可启用；升级期间页面会自动重连。
+
 完整的初始化、远程访问、HTTPS、配置、升级、备份、恢复和镜像更新认证说明见 [部署文档](deploy/README.md)。
 
 镜像：`ghcr.io/lingchaojie/ai_dashboard:latest`（Linux amd64 / arm64）。
