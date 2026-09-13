@@ -77,7 +77,7 @@ def latest_release():
     image_id = validate_digest(manifest['config']['digest'])
     config, _ = fetch(base + 'blobs/' + image_id, token, image_id)
     labels = config.get('config', {}).get('Labels') or {}
-    return dict(digest=digest, image_id=image_id, commit=labels.get('org.opencontainers.image.revision', ''),
+    return dict(digest=digest, platform_digest=child, image_id=image_id, commit=labels.get('org.opencontainers.image.revision', ''),
                 created=labels.get('org.opencontainers.image.created', ''))
 
 
@@ -142,10 +142,16 @@ class Worker:
         archive = self.directory / 'backups' / name
         return archive if archive.is_file() and not archive.is_symlink() else None
 
+    def has_update(self):
+        # Classic stores identify images by config digest; containerd stores can
+        # identify them by index or platform-manifest digest. All are immutable.
+        return bool(self.latest and self.image_id not in {
+            digest for digest in (self.latest['digest'], self.latest['image_id'], self.latest.get('platform_digest')) if digest})
+
     def snapshot(self):
         with self.lock:
             return copy.deepcopy(dict(enabled=True, current=self.current, channel='main', latest=self.latest,
-                                      has_update=bool(self.latest and self.latest['image_id'] != self.image_id),
+                                      has_update=self.has_update(),
                                       rollback_available=self.previous_backup() is not None, job=self.job))
 
     def check(self):
@@ -194,7 +200,7 @@ class Worker:
             if action == 'update':
                 if not self.latest or time.monotonic() - self.checked_at > 600 or request['digest'] != self.latest['digest']:
                     raise ValueError('版本信息已过期或变更，请重新检查更新')
-                if self.latest['image_id'] == self.image_id:
+                if not self.has_update():
                     raise ValueError('当前已是最新版本')
             elif self.previous_backup() is None:
                 raise ValueError('没有可回滚的升级备份')

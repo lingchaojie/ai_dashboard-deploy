@@ -36,6 +36,22 @@ class UpdaterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.select_manifest({'manifests': [{'platform': {'os':'linux','architecture':'arm64'},'digest':'sha256:'+'a'*64}]}, 'amd64')
 
+    def test_latest_detection_supports_classic_and_containerd_image_ids(self):
+        module = self.module()
+        worker = self.worker(module)
+        worker.latest = {'digest':'sha256:'+'a'*64, 'platform_digest':'sha256:'+'b'*64,
+                         'image_id':'sha256:'+'c'*64, 'commit':'new', 'created':'now'}
+        worker.checked_at = time.monotonic()
+        for field in ('digest', 'platform_digest', 'image_id'):
+            worker.image_id = worker.latest[field]
+            with self.subTest(store_id=field):
+                self.assertFalse(worker.snapshot()['has_update'])
+                with self.assertRaisesRegex(ValueError, '最新版本'):
+                    worker.submit('update', {'request_id':'00000000-0000-4000-8000-000000000001',
+                                             'digest':worker.latest['digest']})
+        worker.image_id = 'sha256:'+'d'*64
+        self.assertTrue(worker.snapshot()['has_update'])
+
     def test_target_requires_fresh_check_and_cannot_select_arbitrary_image(self):
         module = self.module()
         worker = self.worker(module)
