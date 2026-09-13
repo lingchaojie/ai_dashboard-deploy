@@ -65,6 +65,9 @@ def save_config(path, config):
     try:
         with os.fdopen(fd, 'w') as stream:
             stream.write(''.join(f'{key}={value}\n' for key, value in config.items()))
+            if os.geteuid() == 0 and path.exists():
+                previous = path.stat()
+                os.fchown(stream.fileno(), previous.st_uid, previous.st_gid)
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -108,7 +111,9 @@ def unpack_backup(archive, destination):
 
 
 class Deployment:
-    def __init__(self, directory):
+    def __init__(self, directory, dashboard_only=False, progress=None):
+        self.dashboard_only = dashboard_only
+        self.progress = progress or (lambda stage, message: None)
         self.directory = directory
         self.env_path = directory / '.env'
         self.config = load_config(self.env_path)
@@ -122,7 +127,7 @@ class Deployment:
 
     def compose(self, *args, config=None, capture=False):
         config = config or self.config
-        env = dict(os.environ, **config)
+        env = dict(os.environ, **config, GATEWAY_INSTALL_DIR=str(self.directory))
         # Host shell secrets and Compose overrides must not alter this installation.
         for key in list(env):
             if key.startswith('COMPOSE_') and key != 'COMPOSE_PROJECT_NAME':
@@ -130,6 +135,8 @@ class Deployment:
         command = ['docker', 'compose', '--project-directory', str(self.directory),
                    '--env-file', str(self.env_path), '-p', config['COMPOSE_PROJECT_NAME'],
                    '-f', str(self.directory / 'compose.yaml')]
+        if (self.directory / 'compose.updates.yaml').is_file():
+            command += ['-f', str(self.directory / 'compose.updates.yaml')]
         if config['DOMAIN']:
             command += ['-f', str(self.directory / 'compose.https.yaml')]
         return subprocess.run(command + list(args), env=env, check=True, text=True,
@@ -142,7 +149,8 @@ class Deployment:
         return json.loads(subprocess.check_output(['docker', 'inspect', result], text=True))[0]
 
     def start(self, pull='missing'):
-        self.compose('up', '-d', '--wait', '--wait-timeout', '120', '--pull', pull, '--remove-orphans')
+        scope = ['--no-deps', 'dashboard'] if self.dashboard_only else ['--remove-orphans']
+        self.compose('up', '-d', '--wait', '--wait-timeout', '120', '--pull', pull, *scope)
 
     def resume_existing(self):
         self.compose('start', 'dashboard')
@@ -166,6 +174,8 @@ class Deployment:
         backups = self.directory / 'backups'
         backups.mkdir(mode=0o700, exist_ok=True)
         backups.chmod(0o700)
+        if os.geteuid() == 0:
+            os.chown(backups, int(self.config['GATEWAY_UID']), int(self.config['GATEWAY_GID']))
         archive = backups / f'gateway-{stamp()}.tar.gz'
         try:
             if running:
@@ -182,6 +192,8 @@ class Deployment:
                 info.mode = 0o600
                 tar.addfile(info, io.BytesIO(metadata))
             archive.chmod(0o600)
+            if os.geteuid() == 0:
+                os.chown(archive, int(self.config['GATEWAY_UID']), int(self.config['GATEWAY_GID']))
         except BaseException:
             archive.unlink(missing_ok=True)
             # Even an update backup failure must not leave the old service stopped.
@@ -195,6 +207,7 @@ class Deployment:
         return archive
 
     def restore(self, archive, safety_backup=True):
+        self.progress('recovering', '正在恢复旧版本和数据')
         # Validate everything before stopping the running service.
         with tempfile.TemporaryDirectory(prefix='.restore-', dir=self.directory) as temporary:
             extracted = Path(temporary) / 'contents'
@@ -230,22 +243,29 @@ class Deployment:
     def update(self, requested, no_pull=False):
         candidate = dict(self.config, GATEWAY_IMAGE=requested or self.config['GATEWAY_IMAGE'])
         validate_config(candidate)
+        self.progress('pulling', '正在下载并校验新版本镜像')
         # Pull failure cannot stop or change the current installation.
         if no_pull:
             subprocess.run(['docker', 'image', 'inspect', candidate['GATEWAY_IMAGE']],
                            check=True, stdout=subprocess.DEVNULL)
         else:
-            self.compose('pull', config=candidate)
+            self.compose('pull', 'dashboard', config=candidate)
+        self.progress('backing_up', '正在停止看板并备份数据库与加密密钥')
         archive = self.backup(restart=False)
         try:
             save_config(self.env_path, candidate)
             self.config = candidate
+            self.progress('starting', '正在启动新版本并等待健康检查')
             self.start('never')
-        except (subprocess.CalledProcessError, OSError):
+        except (subprocess.CalledProcessError, OSError, ValueError):
             print('New version failed readiness; restoring pre-upgrade image and data.', file=sys.stderr)
             self.restore(archive, safety_backup=False)
             raise
-        (self.directory / '.previous-backup').write_text(archive.name + '\n')
+        pointer = self.directory / '.previous-backup'
+        pointer.write_text(archive.name + '\n')
+        pointer.chmod(0o600)
+        if os.geteuid() == 0:
+            os.chown(pointer, int(self.config['GATEWAY_UID']), int(self.config['GATEWAY_GID']))
         print('Upgrade healthy. gateway.sh rollback restores the previous image and data.', flush=True)
 
 
@@ -266,6 +286,11 @@ def initialize(directory):
         data.mkdir(mode=0o700)
         if os.geteuid() == 0:
             os.chown(data, int(config['GATEWAY_UID']), int(config['GATEWAY_GID']))
+    run = directory / 'update-run'
+    if run.is_symlink():
+        raise ValueError('Refusing symlink: update-run')
+    run.mkdir(mode=0o755, exist_ok=True)
+    run.chmod(0o755)
     return config
 
 
@@ -273,7 +298,7 @@ def main():
     parser = argparse.ArgumentParser(description='AI Gateway deployment manager (Docker Compose v2, Python 3.10+)')
     parser.add_argument('--directory', type=Path, default=Path(__file__).resolve().parent)
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('install', 'start', 'stop', 'restart', 'status', 'logs', 'backup', 'rollback'):
+    for name in ('install', 'start', 'stop', 'restart', 'status', 'logs', 'backup', 'rollback', 'update-updater'):
         commands.add_parser(name)
     update = commands.add_parser('update')
     update.add_argument('image', nargs='?')
@@ -301,9 +326,17 @@ def main():
             initialize(directory)
         app = Deployment(directory)
         if args.command == 'install':
-            # Re-running install preserves the running version. Use update to upgrade.
+            # Refresh the independent worker only while holding the shared operation lock.
+            if (directory / 'compose.updates.yaml').is_file():
+                app.compose('pull', 'updater')
+            # Re-running install preserves the dashboard version. Use update to upgrade.
             app.start()
             print(f"AI Gateway ready: http://{app.config['BIND_HOST']}:{app.config['SERVER_PORT']}\nComplete administrator setup on first access. Configuration: {app.env_path}")
+        elif args.command == 'update-updater':
+            if not (directory / 'compose.updates.yaml').is_file():
+                raise ValueError('Run the current installer to enable web updates first')
+            app.compose('pull', 'updater')
+            app.compose('up', '-d', '--wait', '--wait-timeout', '120', '--no-deps', 'updater')
         elif args.command == 'start':
             app.start()
         elif args.command == 'stop':

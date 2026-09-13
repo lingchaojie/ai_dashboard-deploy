@@ -1,0 +1,7 @@
+# syntax=docker/dockerfile:1
+FROM docker:28-cli
+RUN apk add --no-cache python3
+WORKDIR /opt/updater
+COPY deploy/gateway.py deploy/updater.py deploy/updater_healthcheck.py ./
+ENV PYTHONUNBUFFERED=1
+CMD ["python3", "/opt/updater/updater.py", "--help"]

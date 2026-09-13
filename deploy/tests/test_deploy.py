@@ -75,6 +75,16 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(calls[0], ('stop', 'dashboard'))
         self.assertEqual(calls[1][0], 'start', 'backup failure must start the original container, never recreate from a moved tag')
 
+    def test_worker_start_only_recreates_dashboard(self):
+        module = self.module()
+        app = module.Deployment.__new__(module.Deployment)
+        app.dashboard_only = True
+        calls = []
+        app.compose = lambda *args, **kwargs: calls.append(args)
+        app.start('never')
+        self.assertEqual(calls[0][-2:], ('--no-deps', 'dashboard'))
+        self.assertNotIn('--remove-orphans', calls[0])
+
     def test_unknown_command_has_no_filesystem_side_effect(self):
         result = subprocess.run(['bash',str(ROOT / 'gateway.sh'),'erase-everything'],cwd=self.directory,capture_output=True,text=True)
         self.assertNotEqual(result.returncode,0)
@@ -85,7 +95,7 @@ class DeploymentTests(unittest.TestCase):
         binaries.mkdir()
         archive = self.directory / 'snapshot.tar.gz'
         revision = 'a' * 40
-        names = ('compose.yaml', 'compose.https.yaml', 'Caddyfile', '.env.example', 'gateway.sh', 'gateway.py', 'README.md')
+        names = ('compose.yaml', 'compose.https.yaml', 'compose.updates.yaml', 'Caddyfile', '.env.example', 'gateway.sh', 'gateway.py', 'README.md')
         with tarfile.open(archive, 'w:gz', format=tarfile.PAX_FORMAT, pax_headers={'comment': revision}) as tar:
             for name in names:
                 content = b'# deployment fixture\n'

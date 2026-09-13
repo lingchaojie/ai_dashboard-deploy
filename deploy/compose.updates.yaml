@@ -1,0 +1,31 @@
+services:
+  dashboard:
+    environment:
+      DASHBOARD_UPDATE_SOCKET: /run/gateway-update/updater.sock
+    volumes:
+      - ./update-run:/run/gateway-update:ro
+  updater:
+    image: ${GATEWAY_UPDATER_IMAGE:-ghcr.io/lingchaojie/ai_dashboard:updater}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      GATEWAY_INSTALL_DIR: ${GATEWAY_INSTALL_DIR:-/opt/ai-gateway}
+      GATEWAY_UPDATER_IMAGE: ${GATEWAY_UPDATER_IMAGE:-ghcr.io/lingchaojie/ai_dashboard:updater}
+    command: [python3, /opt/updater/updater.py, --directory, "${GATEWAY_INSTALL_DIR:-/opt/ai-gateway}"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${GATEWAY_INSTALL_DIR:-/opt/ai-gateway}:${GATEWAY_INSTALL_DIR:-/opt/ai-gateway}
+    healthcheck:
+      test: [CMD, python3, /opt/updater/updater_healthcheck.py]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

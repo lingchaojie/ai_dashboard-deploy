@@ -1,0 +1,6 @@
+**
+!deploy/
+!deploy/gateway.py
+!deploy/updater.py
+!deploy/updater_healthcheck.py
+!deploy/Dockerfile.updater

@@ -17,7 +17,7 @@ trap 'rm -rf -- "$TEMP_DIR"' EXIT
 curl --fail --silent --show-error --location --retry 3 --connect-timeout 15 --max-time 120 \
     --max-filesize 5242880 --proto '=https' --proto-redir '=https' \
     "https://codeload.github.com/$REPOSITORY/tar.gz/$REF" -o "$TEMP_DIR/deployment.tar.gz"
-FILES=(compose.yaml compose.https.yaml Caddyfile .env.example gateway.sh gateway.py README.md)
+FILES=(compose.yaml compose.https.yaml compose.updates.yaml Caddyfile .env.example gateway.sh gateway.py README.md)
 SHA="$(python3 - "$TEMP_DIR/deployment.tar.gz" "$TEMP_DIR" "${FILES[@]}" <<'PYARCHIVE'
 from pathlib import Path
 import re, sys, tarfile
